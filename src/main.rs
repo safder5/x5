@@ -14,8 +14,8 @@ struct Editor{
     should_quit: bool,
     should_write: bool,
     lines:Vec<String>,
-    c_row:u16,
-    c_col:u16,
+    c_row:usize,
+    c_col:usize,
    // scroll_row:usize,
 }
 
@@ -53,7 +53,7 @@ impl Editor{
             cursor::SavePosition)?;
             // self.draw_welcome_screen()?;
         self.redraw_screen()?;
-        Ok(())
+       Ok(())
     }
 
 
@@ -208,7 +208,9 @@ impl Editor{
                 cursor::MoveTo(0,(i+1).try_into().unwrap()),
                 )?;
         }
-        execute!(io::stdout(),cursor::MoveTo(self.c_row,self.c_col))?;
+        let x= self.c_col as u16;
+        let y = self.c_row as u16;
+        execute!(io::stdout(),cursor::MoveTo(x,y))?;
         io::stdout().flush()?;
 
         Ok(())
