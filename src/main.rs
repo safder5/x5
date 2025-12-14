@@ -1,3 +1,4 @@
+use std::env;
 use std::io::{self, Write};
 use crossterm::{
     event::{self, Event, KeyCode, KeyEvent, KeyModifiers},
@@ -16,7 +17,7 @@ struct Editor{
     lines:Vec<String>,
     c_row:usize,
     c_col:usize,
-   // scroll_row:usize,
+    scroll_row:usize,
 }
 
 impl Editor{
@@ -25,6 +26,7 @@ impl Editor{
         Editor{
             c_col:0,
             c_row:0,
+            scroll_row:0, 
             should_quit: false,
             should_write: false,
             lines: vec![
@@ -34,10 +36,13 @@ impl Editor{
                     String::from("This is line 4: Cursor movement check."),
                     String::from("This is line 5: End of dummy text."),     
             ],
-
         }
     }
+    
+    pub fn load_file(&mut self, path: &str)-> io::Result<()>{
+        // load file using rusts std::fs::
 
+    }
 
     // Initialise the editor env:
     // - switches terminal to "raw mode" no line buffering , no echo
@@ -52,7 +57,7 @@ impl Editor{
             cursor::MoveTo(self.c_row.try_into().unwrap(),self.c_col.try_into().unwrap()),
             cursor::SavePosition)?;
             // self.draw_welcome_screen()?;
-        self.redraw_screen()?;
+        self.short_screen_redraw()?;
        Ok(())
     }
 
@@ -140,16 +145,16 @@ impl Editor{
                    self.clear_screen()?;
                 }
                 KeyCode::Up => {
-                    self.show_message("Up arrow pressed")?;
+                    self.move_up()?;
                 }
                 KeyCode::Down =>{
                     self.move_down()?;
                 }
                 KeyCode::Left =>{
-                   self.show_message("left arrow presed")?;
+                    self.move_left()?;
                 }
                 KeyCode::Right =>{
-                self.show_message("right arrow presed")?
+                    self.move_right()?;
                 }
                 KeyCode::Char(c) =>{
                  self.write_text(&format!("{}",c))?;
@@ -170,25 +175,53 @@ impl Editor{
             }
             Ok(())
         }
+        fn move_right(&mut self)-> io::Result<()>{
+            let line_len = self.lines[self.c_row].len();
 
+            if self.c_col < line_len{
+                self.c_col +=1;
+            }
+
+            Ok(())
+        }
+        fn move_left(&mut self)->io::Result<()>{
+            if self.c_col>0{
+                self.c_col-=1;
+            }
+            Ok(())
+        } 
+        fn move_up(&mut self)-> io::Result<()>{
+            if self.c_row>0{
+                self.c_row-=1;
+                self.c_col = self.c_col.min(self.lines[self.c_row].len());
+            }
+            Ok(())
+        }
 
     // refresh whats displayed
     // hide cursor (prevent flicker during redraw)
     // move cursor to top left
     // flushes output buffer 
     // show cursor again
-    fn refresh_screen(&self) -> io::Result<()>{
-       
+    fn refresh_screen(&mut self) -> io::Result<()>{
+      
+        let x = self.c_col as u16;
+        let y = self.c_row as u16;
+        let line_len = self.lines[self.c_row].len();
+        let (w,h) = terminal::size()?;
+        if line_len > h.into() {
+            if h>0{
+                self.scroll_row = h.into();
+            }
+            self.scroll_row =0;
+            self.redraw_screen()?;
+        }
         execute!(
             io::stdout(),
             cursor::Hide,
-           // cursor::MoveTo(0,0)
+            cursor::MoveTo(x,y),
+             cursor::Show,
             )?;
-
-        io::stdout().flush()?;
-
-        execute!(io::stdout(), cursor::Show)?;
-
         Ok(())
     }
 
@@ -198,16 +231,23 @@ impl Editor{
     // center the messg 
     // use cursor position to place text at specific coords
     // only called once during init not in the main loop
-  
-
-    fn redraw_screen(&self)-> io::Result<()>{
-        for i in 0..self.lines.len(){
-            println!("{}",self.lines[i]);
-            execute!(
-                io::stdout(),
-                cursor::MoveTo(0,(i+1).try_into().unwrap()),
-                )?;
+    fn redraw_screen(&mut self)->io::Result<()>{
+        let (x,y) = terminal::size()?; 
+        for i in 0..y{
+             let sec_i = i as usize;
+            println!("{}",self.lines[self.scroll_row+sec_i]);
         }
+        io::stdout().flush()?;
+        Ok(())
+    }
+
+    fn short_screen_redraw(&self)-> io::Result<()>{
+        for i in 0..50{
+            println!("{}",self.lines[0]);
+            execute!( 
+                io::stdout(),
+                cursor::MoveTo(0,(i+1).try_into().unwrap()),)?;
+            } 
         let x= self.c_col as u16;
         let y = self.c_row as u16;
         execute!(io::stdout(),cursor::MoveTo(x,y))?;
@@ -289,8 +329,24 @@ impl Drop for Editor {
 // print confirm messg
 // the ? operator propagates errors upto the caller
 fn main() -> io::Result<()> {
+    
+    // args[0] is always program name( like "x5" eventually)
+    // args[1] is "filename.txt"
+    // args[2] would be the next argument, etc.. 
+    let filename = env::args().nth(1);
+
     let mut editor = Editor::new();
 
+    match filename{
+        Some(path) =>{
+            editor.load_file(path),
+        }
+        None=>{
+            start_empty()
+            //do nothing
+        }
+    }
+  
     editor.init()?;
     editor.run()?;
     editor.cleanup()?;
@@ -298,4 +354,3 @@ fn main() -> io::Result<()> {
     println!("Editor exited!!");
     Ok(())
 }
-
