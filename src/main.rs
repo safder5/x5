@@ -1,5 +1,7 @@
 use std::env;
-use std::io::{self, Write};
+use std::io::{self, Write, BufRead, BufReader};
+use std::fs::File;
+use std::path::Path;
 use crossterm::{
     event::{self, Event, KeyCode, KeyEvent, KeyModifiers},
     execute,
@@ -7,6 +9,7 @@ use crossterm::{
     cursor,
     // style::{self,Stylize},
 };
+
 
 // main editor struct that holds the state
 // currently tracks wether user wants to quit
@@ -23,7 +26,7 @@ struct Editor{
 impl Editor{
     // createss a new editor instance with default state
     fn new()-> Self{
-        Editor{
+        Self{
             c_col:0,
             c_row:0,
             scroll_row:0, 
@@ -39,9 +42,28 @@ impl Editor{
         }
     }
     
-    pub fn load_file(&mut self, path: &str)-> io::Result<()>{
+    fn from_file(path: &str)-> io::Result<Self>{
         // load file using rusts std::fs::
+        let file = File::open(path)?;
+        let reader = BufReader::new(file);
 
+        let mut lines: Vec<String> = reader.lines().collect::<Result<_, _>>()?; //tricky part add
+                                                                            //expalnation later 
+        if lines.is_empty(){
+            lines.push(String::new());
+        }
+
+        Ok(
+            Self{
+                should_quit: false,
+                should_write: false,
+                lines,
+                c_row: 0,
+                c_col: 0,
+                scroll_row: 0, 
+            }
+        )                                                                    
+ 
     }
 
     // Initialise the editor env:
@@ -56,8 +78,7 @@ impl Editor{
             terminal::Clear(ClearType::All),
             cursor::MoveTo(self.c_row.try_into().unwrap(),self.c_col.try_into().unwrap()),
             cursor::SavePosition)?;
-            // self.draw_welcome_screen()?;
-        self.short_screen_redraw()?;
+      //  self.short_screen_redraw()?;
        Ok(())
     }
 
@@ -241,6 +262,7 @@ impl Editor{
         Ok(())
     }
 
+    // dont use this delete soon!!   
     fn short_screen_redraw(&self)-> io::Result<()>{
         for i in 0..50{
             println!("{}",self.lines[0]);
@@ -333,19 +355,33 @@ fn main() -> io::Result<()> {
     // args[0] is always program name( like "x5" eventually)
     // args[1] is "filename.txt"
     // args[2] would be the next argument, etc.. 
-    let filename = env::args().nth(1);
+    
+    // let filename = env::args().nth(1);
 
-    let mut editor = Editor::new();
+    let args: Vec<String> = env::args().collect(); 
 
-    match filename{
-        Some(path) =>{
-            editor.load_file(path),
+    let mut editor = match args.len(){
+
+        1 => {
+            println!("Creating new file");
+            Editor::new()
         }
-        None=>{
-            start_empty()
-            //do nothing
+        2 =>{
+            let filepath = &args[1];
+            if Path::new(filepath).exists(){
+                println!("opening existing file:: {}", filepath);
+                Editor::from_file(filepath)?
+            }
+            else{
+                println!("File doesnt exist, creating new: {}", filepath);
+                Editor::new()
+            }
         }
-    }
+        _ =>{
+            eprintln!("usage : {} [filename] ", args[0]);
+            std::process::exit(1);
+        }
+    };
   
     editor.init()?;
     editor.run()?;
