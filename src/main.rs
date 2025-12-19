@@ -33,11 +33,7 @@ impl Editor{
             should_quit: false,
             should_write: false,
             lines: vec![
-                    String::from("This is line 1: Hello, world!"),
-                    String::from("This is line 2: Rust text editor test."),
-                    String::from("This is line 3: Lorem ipsum dolor sit amet."),
-                    String::from("This is line 4: Cursor movement check."),
-                    String::from("This is line 5: End of dummy text."),     
+                String::from(""),
             ],
         }
     }
@@ -96,7 +92,7 @@ impl Editor{
             if self.should_quit{
                 break;
             }
-        
+            self.redraw_screen()?;
             self.process_keypress()?;
         }
         Ok(())
@@ -105,9 +101,9 @@ impl Editor{
 
    // this writes text into the terminal when clicked and 
    // also calls the function that updates cursor coords   
-    fn write_text(&mut self, ch: &str )-> io::Result<()>{
+    fn insert_char(&mut self, ch: &str )-> io::Result<()>{
         
-        let  ( pos_x,  pos_y) = cursor::position().unwrap();
+      //let  ( pos_x,  pos_y) = cursor::position().unwrap();
       //  print!("{}{}",pos_x,pos_y); 
 
         execute!(
@@ -115,11 +111,19 @@ impl Editor{
             cursor::Hide,
          //   terminal::BeginSynchronizedUpdate,
             )?;
-        print!("{}",ch);
+        // print!("{}",ch); we dont want to print it we want a constant redraw of the screen
+
+        // push the character into the current line 
+        // make sure it adds forward doesnt change current element 
+        // and if its mid sentence how to cut and concat ??
+        
+        self.lines[self.c_row].push_str(&format!("{}",ch));
+
+        self.move_right()?;
 
         execute!(io::stdout(),
        // terminal::EndSynchronizedUpdate,
-        cursor::MoveTo(pos_x+1,pos_y),
+        cursor::MoveTo(self.c_col.try_into().unwrap(),self.c_row.try_into().unwrap()),
         // cursor::SavePosition,
         cursor::Show)?;
         
@@ -128,7 +132,9 @@ impl Editor{
         io::stdout().flush()?;
 
         Ok(())
-    } 
+    }
+
+
     fn update_cursor_position_bar(&mut self)-> io::Result<()>{
             let (w,h) = terminal::size()?;
             let (x,y) = cursor::position().unwrap();
@@ -178,8 +184,8 @@ impl Editor{
                     self.move_right()?;
                 }
                 KeyCode::Char(c) =>{
-                 self.write_text(&format!("{}",c))?;
-                // self.show_message(&format!("char pressed:{}",c))?;
+                 self.insert_char(&format!("{c}"))?;
+                 self.show_message(&format!("char pressed:{}",c))?;
                 }
                 _ => {}
             }
@@ -229,7 +235,7 @@ impl Editor{
         let x = self.c_col as u16;
         let y = self.c_row as u16;
         let line_len = self.lines[self.c_row].len();
-        let (w,h) = terminal::size()?;
+        let (_w,h) = terminal::size()?;
         if line_len > h.into() {
             if h>0{
                 self.scroll_row = h.into();
@@ -253,28 +259,20 @@ impl Editor{
     // use cursor position to place text at specific coords
     // only called once during init not in the main loop
     fn redraw_screen(&mut self)->io::Result<()>{
-        let (x,y) = terminal::size()?; 
-        for i in 0..y{
-             let sec_i = i as usize;
-            println!("{}",self.lines[self.scroll_row+sec_i]);
+        let (_x,y) = terminal::size()?; 
+        let line_len = self.lines[self.c_row].len();
+
+        if line_len > y.into(){
+            for i in 0..y{
+                let sec_i = i as usize;
+                println!("{}",self.lines[self.scroll_row+sec_i]);
+            }
+        } else {
+            for i in 0..line_len{
+                print!("{}",self.lines[i]);
+            }
         }
         io::stdout().flush()?;
-        Ok(())
-    }
-
-    // dont use this delete soon!!   
-    fn short_screen_redraw(&self)-> io::Result<()>{
-        for i in 0..50{
-            println!("{}",self.lines[0]);
-            execute!( 
-                io::stdout(),
-                cursor::MoveTo(0,(i+1).try_into().unwrap()),)?;
-            } 
-        let x= self.c_col as u16;
-        let y = self.c_row as u16;
-        execute!(io::stdout(),cursor::MoveTo(x,y))?;
-        io::stdout().flush()?;
-
         Ok(())
     }
 
@@ -309,7 +307,7 @@ impl Editor{
         io::stdout().flush()?;
         execute!(
             io::stdout(),
-            cursor::RestorePosition,
+            cursor::MoveTo(self.c_col.try_into().unwrap(),self.c_row.try_into().unwrap()),
             )?;
         Ok(())
     }
