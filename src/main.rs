@@ -92,7 +92,7 @@ impl Editor{
             if self.should_quit{
                 break;
             }
-            self.redraw_screen()?;
+            self.redraw_screen()?; // need to change to ropey 
             self.process_keypress()?;
         }
         Ok(())
