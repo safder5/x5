@@ -1,5 +1,6 @@
 use std::env;
-use std::io::{self, Write, BufRead, BufReader};
+use ropey::Rope;
+use std::io::{self, Write, BufRead, BufReader, BufWriter};
 use std::fs::File;
 use std::path::Path;
 use crossterm::{
@@ -17,10 +18,10 @@ use crossterm::{
 struct Editor{
     should_quit: bool,
     should_write: bool,
-    lines:Vec<String>,
-    c_row:usize,
-    c_col:usize,
-    scroll_row:usize,
+    lines: Rope,
+    c_row: usize,
+    c_col: usize,
+    scroll_row: usize,
 }
 
 impl Editor{
@@ -32,21 +33,23 @@ impl Editor{
             scroll_row:0, 
             should_quit: false,
             should_write: false,
-            lines: vec![
-                String::from(""),
-            ],
+            lines: Rope::from_str(""),
         }
     }
     
     fn from_file(path: &str)-> io::Result<Self>{
         // load file using rusts std::fs::
-        let file = File::open(path)?;
-        let reader = BufReader::new(file);
+        //let file = File::open(path)?;
+        //let reader = BufReader::new(file);
 
-        let mut lines: Vec<String> = reader.lines().collect::<Result<_, _>>()?; //tricky part add
+        let mut lines = Rope::from_reader(
+            BufReader::new(File::open(path)?)
+            )?;
+
+        //let mut lines: Vec<String> = reader.lines().collect::<Result<_, _>>()?; //tricky part add
                                                                             //expalnation later 
-        if lines.is_empty(){
-            lines.push(String::new());
+        if lines.len_chars() == 0{
+            lines = Rope::from_str("file was empty!");
         }
 
         Ok(
@@ -87,13 +90,14 @@ impl Editor{
     // this loop runs continuously while x5 is open
     fn run(&mut self)-> io::Result<()>{
         loop{
-            self.refresh_screen()?;
-
+          //  self.refresh_screen()?;
+          
             if self.should_quit{
                 break;
             }
             self.redraw_screen()?; // need to change to ropey 
             self.process_keypress()?;
+            self.update_cursor_position()?;
         }
         Ok(())
     }
@@ -101,7 +105,7 @@ impl Editor{
 
    // this writes text into the terminal when clicked and 
    // also calls the function that updates cursor coords   
-    fn insert_char(&mut self, ch: &str )-> io::Result<()>{
+    fn insert_char(&mut self, ch: char )-> io::Result<()>{
         
       //let  ( pos_x,  pos_y) = cursor::position().unwrap();
       //  print!("{}{}",pos_x,pos_y); 
@@ -116,8 +120,9 @@ impl Editor{
         // push the character into the current line 
         // make sure it adds forward doesnt change current element 
         // and if its mid sentence how to cut and concat ??
-        
-        self.lines[self.c_row].push_str(&format!("{}",ch));
+        let char_idx = self.lines.line_to_char(self.c_row) + self.c_col;
+//        self.lines.line(self.c_row).push_str(&format!("{}",ch));
+        self.lines.try_insert_char(char_idx, ch);
 
         self.move_right()?;
 
@@ -152,7 +157,22 @@ impl Editor{
                 cursor::Show)?;
 
             Ok(())
-    } 
+    }
+
+    fn update_cursor_position(&mut self)-> io::Result<()>{
+        let x = self.c_col as u16;
+        let y = self.c_row as u16;
+        execute!(
+                io::stdout(),
+                cursor::Hide,
+                cursor::MoveTo(x,y),
+                cursor::Show,
+                )?;
+        
+        Ok(())
+    }
+
+    
    
 
     // process keypress by user
@@ -184,7 +204,7 @@ impl Editor{
                     self.move_right()?;
                 }
                 KeyCode::Char(c) =>{
-                 self.insert_char(&format!("{c}"))?;
+                 self.insert_char(c)?;
                  self.show_message(&format!("char pressed:{}",c))?;
                 }
                 _ => {}
@@ -196,14 +216,14 @@ impl Editor{
 
     
         fn move_down(&mut self)->io::Result<()>{
-            if self.c_row + 1 < self.lines.len() {
+            if self.c_row + 1 < self.lines.len_lines() {
                 self.c_row+=1;
-                self.c_col = self.c_col.min(self.lines[self.c_row].len());
+                self.c_col = self.c_col.min(self.lines.line(self.c_row).len_chars());
             }
             Ok(())
         }
         fn move_right(&mut self)-> io::Result<()>{
-            let line_len = self.lines[self.c_row].len();
+            let line_len = self.lines.line(self.c_row).len_chars();
 
             if self.c_col < line_len{
                 self.c_col +=1;
@@ -220,7 +240,7 @@ impl Editor{
         fn move_up(&mut self)-> io::Result<()>{
             if self.c_row>0{
                 self.c_row-=1;
-                self.c_col = self.c_col.min(self.lines[self.c_row].len());
+                self.c_col = self.c_col.min(self.lines.line(self.c_row).len_chars());
             }
             Ok(())
         }
@@ -230,12 +250,15 @@ impl Editor{
     // move cursor to top left
     // flushes output buffer 
     // show cursor again
-    fn refresh_screen(&mut self) -> io::Result<()>{
+    // it doesnt make sense the name even it should really just be resetting scroll row when lines
+    // are more than terminal height thats it redraw shouldnt even be here 
+    fn reset_scroll_row(&mut self) -> io::Result<()>{
       
         let x = self.c_col as u16;
         let y = self.c_row as u16;
-        let line_len = self.lines[self.c_row].len();
+        let line_len = self.lines.len_lines();
         let (_w,h) = terminal::size()?;
+        /*
         if line_len > h.into() {
             if h>0{
                 self.scroll_row = h.into();
@@ -243,6 +266,7 @@ impl Editor{
             self.scroll_row =0;
             self.redraw_screen()?;
         }
+        */
         execute!(
             io::stdout(),
             cursor::Hide,
@@ -259,17 +283,19 @@ impl Editor{
     // use cursor position to place text at specific coords
     // only called once during init not in the main loop
     fn redraw_screen(&mut self)->io::Result<()>{
+       
+        self.clear_screen()?;
         let (_x,y) = terminal::size()?; 
-        let line_len = self.lines[self.c_row].len();
+        let line_len = self.lines.len_lines();
 
         if line_len > y.into(){
             for i in 0..y{
                 let sec_i = i as usize;
-                println!("{}",self.lines[self.scroll_row+sec_i]);
+                println!("{}",self.lines.line(self.scroll_row+sec_i));
             }
         } else {
             for i in 0..line_len{
-                print!("{}",self.lines[i]);
+                print!("{}",self.lines.line(i));
             }
         }
         io::stdout().flush()?;
