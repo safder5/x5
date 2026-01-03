@@ -97,7 +97,7 @@ impl Editor{
             }
             self.redraw_screen()?; // need to change to ropey 
             self.process_keypress()?;
-            self.update_cursor_position()?;
+          //  self.update_cursor_position()?;
         }
         Ok(())
     }
@@ -207,6 +207,9 @@ impl Editor{
                  self.insert_char(c)?;
                  self.show_message(&format!("char pressed:{}",c))?;
                 }
+                KeyCode::Backspace =>{
+                    self.backspace_char()?;
+                }
                 _ => {}
             }
         }
@@ -242,6 +245,16 @@ impl Editor{
                 self.c_row-=1;
                 self.c_col = self.c_col.min(self.lines.line(self.c_row).len_chars());
             }
+            Ok(())
+        }
+
+        fn backspace_char(&mut self)-> io::Result<()>{
+
+            //self.lines.line(self.c_row).remove(self.c_col);
+            let mut slice = self.lines.line(self.c_row);
+            let col_index = self.c_col;
+            slice.remove(col_index);
+           // self.lines.remove
             Ok(())
         }
 
@@ -283,11 +296,11 @@ impl Editor{
     // use cursor position to place text at specific coords
     // only called once during init not in the main loop
     fn redraw_screen(&mut self)->io::Result<()>{
-       
-        self.clear_screen()?;
+
+        self.clear_screen()?; // no idea why this is here 
         let (_x,y) = terminal::size()?; 
         let line_len = self.lines.len_lines();
-
+        
         if line_len > y.into(){
             for i in 0..y{
                 let sec_i = i as usize;
@@ -298,6 +311,9 @@ impl Editor{
                 print!("{}",self.lines.line(i));
             }
         }
+        
+        self.update_cursor_position()?;
+       
         io::stdout().flush()?;
         Ok(())
     }
